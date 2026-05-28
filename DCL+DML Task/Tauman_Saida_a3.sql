@@ -45,10 +45,10 @@ REVOKE UPDATE, DELETE ON ALL TABLES IN SCHEMA restaurant FROM restaurant_readonl
 /*
 \dp restaurant.customer
                                             Access privileges
-   Schema   |   Name   | Type  |         Access privileges         | Column privileges | Policies 
-------------+----------+-------+-----------------------------------+-------------------+----------
- restaurant | customer | table | restaurant_admin=arwd/restaurant +|                   | 
-            |          |       | restaurant_readonly=r/restaurant  |                   | 
+   Schema   |   Name   | Type  |           Access privileges           | Column privileges | Policies 
+------------+----------+-------+---------------------------------------+-------------------+----------
+ restaurant | customer | table | restaurant_admin=arwd/restaurant     +|                   | 
+            |          |       | restaurant_readonly=r/restaurant      |                   | 
 (1 row)
 */
 
@@ -78,8 +78,6 @@ BEGIN
 EXCEPTION WHEN insufficient_privilege THEN
     RAISE NOTICE 'Expected INSERT failure caught';
 END $$;
-/* ERROR:  permission denied for table test_perm
-SQL state: 42501 */
 
 DO $$
 BEGIN
@@ -87,8 +85,7 @@ BEGIN
 EXCEPTION WHEN insufficient_privilege THEN
     RAISE NOTICE 'Expected UPDATE failure caught';
 END $$;
-/* ERROR:  permission denied for table test_perm
-SQL state: 42501 */
+
 
 DO $$
 BEGIN
@@ -96,12 +93,11 @@ BEGIN
 EXCEPTION WHEN insufficient_privilege THEN
     RAISE NOTICE 'Expected DELETE failure caught';
 END $$;
-/* ERROR:  permission denied for table test_perm
-SQL state: 42501 */
 
 RESET ROLE;
 DROP TABLE IF EXISTS restaurant.test_perm CASCADE;
 
+-- B5: TRUNCATE in strict Foreign Key dependency order
 TRUNCATE TABLE restaurant.InventoryTransaction RESTART IDENTITY CASCADE;
 TRUNCATE TABLE restaurant.Payment RESTART IDENTITY CASCADE;
 TRUNCATE TABLE restaurant.OrderItem RESTART IDENTITY CASCADE;
@@ -117,6 +113,7 @@ TRUNCATE TABLE restaurant.MenuCategory RESTART IDENTITY CASCADE;
 TRUNCATE TABLE restaurant.UnitOfMeasure RESTART IDENTITY CASCADE;
 TRUNCATE TABLE restaurant.Role RESTART IDENTITY CASCADE;
 
+-- B6: Data population with realistic data & subqueries
 INSERT INTO restaurant.Role (RoleName) VALUES
 ('Waiter'), ('Chef'), ('Manager'), ('Hostess'), ('Bartender');
 
@@ -203,20 +200,33 @@ INSERT INTO restaurant.Reservation (CustomerID, TableID, ReservationDate, Status
 ((SELECT CustomerID FROM restaurant.Customer WHERE Email = 'zarina.k@example.kz'), (SELECT TableID FROM restaurant.RestaurantTable WHERE TableNumber = 4), '2026-05-28 13:00:00', 'Cancelled'),
 ((SELECT CustomerID FROM restaurant.Customer WHERE Email = 'serik.a@example.kz'), (SELECT TableID FROM restaurant.RestaurantTable WHERE TableNumber = 5), '2026-05-29 21:00:00', 'Confirmed');
 
-SELECT count(*) FROM restaurant.MenuItem WHERE ItemName = 'Pepperoni Pizza';
+
+-- C7: Two UPDATE statements with Business reasons and SELECT previews
+
+-- Business reason: Increased pizza price by 10% due to rising ingredient costs.
+SELECT count(*) FROM restaurant.MenuItem 
+WHERE ItemName = 'Pepperoni Pizza';
 -- 1 row will be affected
 
 UPDATE restaurant.MenuItem
 SET Price = Price * 1.10
 WHERE ItemName = 'Pepperoni Pizza';
 
-SELECT count(*) FROM restaurant.Customer WHERE Email = 'ali.a@example.kz';
+
+-- Business reason: Customer requested phone number correction.
+SELECT count(*) 
+FROM restaurant.Customer 
+WHERE Email = 'ali.a@example.kz';
 -- 1 row will be affected
 
 UPDATE restaurant.Customer
 SET Phone = '+77019998877'
 WHERE Email = 'ali.a@example.kz';
 
+
+-- C8: UPDATE ... FROM with join and SELECT preview
+
+-- Business reason: Annual performance-based salary increase for all waiting staff.
 SELECT count(*) 
 FROM restaurant.Employee e
 JOIN restaurant.Role r ON e.RoleID = r.RoleID
@@ -228,6 +238,9 @@ SET Salary = emp.Salary * 1.15
 FROM restaurant.Role rol
 WHERE emp.RoleID = rol.RoleID
   AND rol.RoleName = 'Waiter';
+
+
+-- D9 & D10: DELETE within transaction, row count verification, and Business reason
 
 -- Business reason: Removing cancelled reservations to clean up obsolete data.
 SELECT count(*) FROM restaurant.Reservation WHERE Status = 'Cancelled';
